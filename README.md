@@ -1,2 +1,3 @@
 # COMP3080
-Computer Graphics answers
+My Computer Graphics answers
+For reference purposes only
