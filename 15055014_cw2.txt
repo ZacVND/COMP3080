@@ -1,0 +1,444 @@
+#define PROJECTION
+#define RASTERIZATION
+#define CLIPPING
+#define INTERPOLATION // Mo Afshar helped me complete the sutherlandHodgmanClip function
+#define ZBUFFERING
+#define ANIMATION
+#define ENTERING 0
+#define LEAVING 1
+#define OUTSIDE 2
+#define INSIDE 3
+#define INNER_SIDE 0
+#define OUTER_SIDE 1
+
+precision highp float;
+uniform float time;
+
+// Polygon / vertex functionality
+const int MAX_VERTEX_COUNT = 8;
+
+uniform ivec2 viewport;
+
+struct Vertex {
+    vec3 position;
+    vec3 color;
+};
+
+struct Polygon {
+    // Numbers of vertices, i.e., points in the polygon
+    int vertexCount;
+    // The vertices themselves
+    Vertex vertices[MAX_VERTEX_COUNT];
+};
+
+int edge(vec2 point, Vertex a, Vertex b);
+
+// Appends a vertex to a polygon
+void appendVertexToPolygon(inout Polygon polygon, Vertex element) {
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i == polygon.vertexCount) {
+            polygon.vertices[i] = element;
+        }
+    }
+    polygon.vertexCount++;
+}
+
+// Copy Polygon source to Polygon destination
+void copyPolygon(inout Polygon destination, Polygon source) {
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        destination.vertices[i] = source.vertices[i];
+    }
+    destination.vertexCount = source.vertexCount;
+}
+
+// Get the i-th vertex from a polygon, but when asking for the one behind the last, get the first again
+Vertex getWrappedPolygonVertex(Polygon polygon, int index) {
+    if (index >= polygon.vertexCount) index -= polygon.vertexCount;
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i == index) return polygon.vertices[i];
+    }
+}
+
+// Creates an empty polygon
+void makeEmptyPolygon(out Polygon polygon) {
+  polygon.vertexCount = 0;
+}
+
+// Clipping part
+// poli1, poli2 = edge of polygon
+// wind1, wind2 = edge of clipping window
+int getCrossType(Vertex poli1, Vertex poli2, Vertex wind1, Vertex wind2) {
+#ifdef CLIPPING
+    // Put your code here
+    int pointA = edge(poli1.position.xy, wind1, wind2);
+    int pointB = edge(poli2.position.xy, wind1, wind2);
+    
+    if (pointA == INNER_SIDE && pointB == OUTER_SIDE) return LEAVING; 
+    if (pointA == OUTER_SIDE && pointB == INNER_SIDE) return ENTERING; 
+    if (pointA == OUTER_SIDE && pointB == OUTER_SIDE) return OUTSIDE; 
+#endif
+    return INSIDE;
+}
+
+// This function assumes that the segments are not parallel or collinear.
+Vertex intersect2D(Vertex a, Vertex b, Vertex c, Vertex d) {
+#ifdef CLIPPING
+    // Put your code here
+    float a1 = b.position.y - a.position.y;
+    float b1 = a.position.x - b.position.x;
+    float c1 = a1*(a.position.x) + b1*(a.position.y);
+ 
+    float a2 = d.position.y - c.position.y;
+    float b2 = c.position.x - d.position.x;
+    float c2 = a2*(c.position.x)+ b2*(c.position.y);
+ 
+    float determinant = a1*b2 - a2*b1;
+
+    float x = (b2*c1 - b1*c2)/determinant;
+    float y = (a1*c2 - a2*c1)/determinant;
+    a.position.x = x;
+    a.position.y = y;
+    return a;
+#else
+    return a;
+#endif
+}
+
+// Mo Afshar helped me complete the sutherlandHodgmanClip function
+void sutherlandHodgmanClip(Polygon unclipped, Polygon clipWindow, out Polygon result) {
+    Polygon clipped;
+    copyPolygon(clipped, unclipped);
+
+    // Loop over the clip window
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i >= clipWindow.vertexCount) break;
+
+        // Make a temporary copy of the current clipped polygon
+        Polygon oldClipped;
+        copyPolygon(oldClipped, clipped);
+
+        // Set the clipped polygon to be empty
+        makeEmptyPolygon(clipped);
+
+        // Loop over the current clipped polygon
+        for (int j = 0; j < MAX_VERTEX_COUNT; ++j) {
+            if (j >= oldClipped.vertexCount) break;
+            
+            // Handle the j-th vertex of the clipped polygon. This should make use of the function 
+            // intersect() to be implemented above.
+#ifdef CLIPPING
+    // Put your code here         
+            Vertex wStart, wEnd, cStart, cEnd, intersect; 
+            wStart = getWrappedPolygonVertex(clipWindow, i); 
+            wEnd   = getWrappedPolygonVertex(clipWindow, i+1); 
+            cStart = getWrappedPolygonVertex(oldClipped, j); 
+            cEnd   = getWrappedPolygonVertex(oldClipped, j+1);
+            intersect = intersect2D(wStart, wEnd, cStart, cEnd);
+            int c = getCrossType(cStart, cEnd, wStart, wEnd); 
+            
+            if (c == ENTERING){
+                if (c == LEAVING){
+                    appendVertexToPolygon(clipped, cStart);
+                }
+                appendVertexToPolygon(clipped, intersect);
+            }
+            if (c == LEAVING) {
+              appendVertexToPolygon(clipped, cStart);
+              appendVertexToPolygon(clipped, intersect);
+            }
+            if (c == INSIDE) {
+              appendVertexToPolygon(clipped, cStart);
+            }
+#else
+            appendVertexToPolygon(clipped, getWrappedPolygonVertex(oldClipped, j));
+#endif
+        }
+    }
+
+    // Copy the last version to the output
+    copyPolygon(result, clipped);
+}
+
+// Rasterization and culling part
+// Assuming a clockwise (vertex-wise) polygon, returns whether the input point 
+// is on the inner or outer side of the edge (ab)
+int edge(vec2 point, Vertex a, Vertex b) {
+#ifdef RASTERIZATION
+    // Put your code here
+    float e = (point.x - a.position.x)*(b.position.y - a.position.y) 
+                - (point.y - a.position.y)*(b.position.x - a.position.x);
+    if (e > 0.0) {
+        return INNER_SIDE;
+    }
+#endif
+    return OUTER_SIDE;
+}
+
+// Returns if a point is inside a polygon or not
+bool isPointInPolygon(vec2 point, Polygon polygon) {
+    // Don't evaluate empty polygons
+    if (polygon.vertexCount == 0) return false;
+    // Check against each edge of the polygon
+    bool rasterise = true;
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i < polygon.vertexCount) {
+#ifdef RASTERIZATION
+    // Put your code here
+            Vertex vStart = getWrappedPolygonVertex(polygon, i);
+            Vertex vEnd = getWrappedPolygonVertex(polygon, i+1);
+            if (edge(point, vStart, vEnd) == OUTER_SIDE) {
+              rasterise = false;
+              break;
+            }
+#else
+            rasterise = true;
+#endif
+        }
+    }
+    return rasterise;
+}
+
+bool isPointOnPolygonVertex(vec2 point, Polygon polygon) {
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i < polygon.vertexCount) {
+            ivec2 pixelDifference = ivec2(abs(polygon.vertices[i].position.xy - point) * vec2(viewport));
+            int pointSize = viewport.x / 200;
+            if( pixelDifference.x <= pointSize && pixelDifference.y <= pointSize) {
+              return true;
+            }
+        }
+    }
+    return false;
+}
+
+float triangleArea(vec2 a, vec2 b, vec2 c) {
+    // https://en.wikipedia.org/wiki/Heron%27s_formula
+    float ab = length(a - b);
+    float bc = length(b - c);
+    float ca = length(c - a);
+    float s = (ab + bc + ca) / 2.0;
+    return sqrt(max(0.0, s * (s - ab) * (s - bc) * (s - ca)));
+}
+
+Vertex interpolateVertex(vec2 point, Polygon polygon) {
+    float weightSum = 0.0;
+    vec3 colorSum = vec3(0.0);
+    vec3 positionSum = vec3(0.0);
+    float depthSum = 0.0;
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i < polygon.vertexCount) {
+#if defined(INTERPOLATION) || defined(ZBUFFERING)
+    // Put your code here
+            Vertex a, b, c;
+            a = getWrappedPolygonVertex(polygon, i);
+            b = getWrappedPolygonVertex(polygon, i+1);
+            c = getWrappedPolygonVertex(polygon, i+2);
+            float totalA = triangleArea(polygon.vertices[0].position.xy, 
+                                        polygon.vertices[1].position.xy, 
+                                        polygon.vertices[2].position.xy);
+            float area   = triangleArea(b.position.xy, c.position.xy, point);
+            float weight = area/totalA;
+#else
+#endif
+#ifdef ZBUFFERING
+    // Put your code here
+            depthSum += weight * (1.0 / a.position.z);
+#endif
+#ifdef INTERPOLATION
+    // Put your code here
+            colorSum += weight * a.color;
+#endif
+        }
+    }
+    
+    Vertex result = polygon.vertices[0];
+  
+#ifdef INTERPOLATION
+    // Put your code here
+    result.color = colorSum;
+#endif
+#ifdef ZBUFFERING
+    // Put your code here
+    result.position = vec3(0.0, 0.0, 1.0 / depthSum);
+#endif
+#if !defined(INTERPOLATION) && !defined(ZBUFFERING)
+    // Put your code here
+#endif
+
+  return result;
+}
+
+// Projection part
+// Used to generate a projection matrix.
+mat4 computeProjectionMatrix() {
+    mat4 projectionMatrix = mat4(1);
+  
+  float aspect = float(viewport.x) / float(viewport.y);  
+  float imageDistance = 0.5;
+  float fov = 0.68;
+
+#ifdef PROJECTION
+    // Put your code here
+    float cotangent = cos(fov * 0.5) / sin(fov * 0.5);
+    float zFar = 100.0;
+    float zNear = imageDistance;
+    float deltaZ = zFar - zNear;
+    projectionMatrix[0] = vec4(cotangent / aspect, 0.0, 0.0, 0.0);
+    projectionMatrix[1] = vec4(0.0, cotangent, 0.0, 0.0);
+    projectionMatrix[2] = vec4(0.0, 0.0, -(zFar + zNear) / deltaZ, 1.0);
+    projectionMatrix[3] = vec4(0.0, 0.0, -2.0 * zNear * zFar / deltaZ, 0.0);
+#endif
+  
+    return projectionMatrix;
+}
+
+// Used to generate a simple "look-at" camera. 
+mat4 computeViewMatrix(vec3 VRP, vec3 TP, vec3 VUV) {
+    mat4 viewMatrix = mat4(1);
+
+#ifdef PROJECTION
+    // Put your code here
+    vec3 VPN = TP - VRP;
+    // Generate the camera axes.
+    vec3 n = normalize(VPN);
+    vec3 u = normalize(cross(VUV, n));
+    vec3 v = normalize(cross(n, u));
+    
+    mat4 modelViewMatrix;
+    modelViewMatrix[0] = vec4(u[0], v[0], n[0], 0);
+    modelViewMatrix[1] = vec4(u[1], v[1], n[1], 0);
+    modelViewMatrix[2] = vec4(u[2], v[2], n[2], 0);
+    modelViewMatrix[3] = vec4(- dot(VRP, u), - dot(VRP, v), - dot(VRP, n), 1);
+
+    return modelViewMatrix;
+#endif
+    return viewMatrix;
+}
+
+vec3 getCameraPosition() {  
+#ifdef ANIMATION
+    // Put your code here
+    return 10.0 * normalize(vec3(sin(time), 0, cos(time)));
+#else
+    return vec3(0, 0, 10);
+#endif
+}
+
+// Takes a single input vertex and projects it using the input view and projection matrices
+vec3 projectVertexPosition(vec3 position) {
+
+  // Set the parameters for the look-at camera.
+    vec3 TP  = vec3(0, 0, 0);
+    vec3 VRP = getCameraPosition();
+    vec3 VUV = vec3(0, 1, 0);
+  
+    // Compute the view matrix.
+    mat4 viewMatrix = computeViewMatrix(VRP, TP, VUV);
+
+  // Compute the projection matrix.
+    mat4 projectionMatrix = computeProjectionMatrix();
+  
+#ifdef PROJECTION
+    // Put your code here
+    vec4 subPosition = projectionMatrix * viewMatrix * vec4(position, 1.0);
+    return vec3(subPosition) / subPosition.w;
+
+#else
+    return position;
+#endif
+}
+
+// Projects all the vertices of a polygon
+void projectPolygon(inout Polygon projectedPolygon, Polygon polygon) {
+    copyPolygon(projectedPolygon, polygon);
+    for (int i = 0; i < MAX_VERTEX_COUNT; ++i) {
+        if (i < polygon.vertexCount) {
+            projectedPolygon.vertices[i].position = projectVertexPosition(polygon.vertices[i].position);
+        }
+    }
+}
+
+// Draws a polygon by projecting, clipping, ratserizing and interpolating it
+void drawPolygon(
+  vec2 point, 
+  Polygon clipWindow, 
+  Polygon oldPolygon, 
+  inout vec3 color, 
+  inout float depth)
+{
+    Polygon projectedPolygon;
+    projectPolygon(projectedPolygon, oldPolygon);  
+  
+    Polygon clippedPolygon;
+    sutherlandHodgmanClip(projectedPolygon, clipWindow, clippedPolygon);
+
+    if (isPointInPolygon(point, clippedPolygon)) {
+      
+        Vertex interpolatedVertex = 
+          interpolateVertex(point, projectedPolygon);
+#if defined(ZBUFFERING)    
+    // Put your code here
+        if (interpolatedVertex.position.z < depth) {
+            color = interpolatedVertex.color;
+            depth = interpolatedVertex.position.z;
+        }
+#else
+      // Put your code to handle z buffering here
+      color = interpolatedVertex.color;
+      depth = interpolatedVertex.position.z;      
+#endif
+   }
+  
+   if (isPointOnPolygonVertex(point, clippedPolygon)) {
+        color = vec3(1);
+   }
+}
+
+// Main function calls
+
+void drawScene(vec2 pixelCoord, inout vec3 color) {
+    color = vec3(0.3, 0.3, 0.3);
+  
+    // Convert from GL pixel coordinates 0..N-1 to our screen coordinates -1..1
+    vec2 point = 2.0 * pixelCoord / vec2(viewport) - vec2(1.0);
+
+    Polygon clipWindow;
+    clipWindow.vertices[0].position = vec3(-0.65,  0.95, 1.0);
+    clipWindow.vertices[1].position = vec3( 0.65,  0.75, 1.0);
+    clipWindow.vertices[2].position = vec3( 0.75, -0.65, 1.0);
+    clipWindow.vertices[3].position = vec3(-0.75, -0.85, 1.0);
+    clipWindow.vertexCount = 4;
+  
+    // Draw the area outside the clip region to be dark
+    color = isPointInPolygon(point, clipWindow) ? vec3(0.5) : color;
+
+    const int triangleCount = 2;
+    Polygon triangles[triangleCount];
+  
+    triangles[0].vertices[0].position = vec3(-2, -2, 0.0);
+    triangles[0].vertices[1].position = vec3(4, 0, 3.0);
+    triangles[0].vertices[2].position = vec3(-1, 2, 0.0);
+    triangles[0].vertices[0].color = vec3(1.0, 0.5, 0.2);
+    triangles[0].vertices[1].color = vec3(0.8, 0.8, 0.8);
+    triangles[0].vertices[2].color = vec3(0.2, 0.5, 1.0);
+    triangles[0].vertexCount = 3;
+  
+    triangles[1].vertices[0].position = vec3(3.0, 2.0, -2.0);
+    triangles[1].vertices[2].position = vec3(0.0, -2.0, 3.0);
+    triangles[1].vertices[1].position = vec3(-1.0, 2.0, 4.0);
+    triangles[1].vertices[1].color = vec3(0.2, 1.0, 0.1);
+    triangles[1].vertices[2].color = vec3(1.0, 1.0, 1.0);
+    triangles[1].vertices[0].color = vec3(0.1, 0.2, 1.0);
+    triangles[1].vertexCount = 3;
+
+    float depth = 10000.0;
+    // Project and draw all the triangles
+    for (int i = 0; i < triangleCount; i++) {
+        drawPolygon(point, clipWindow, triangles[i], color, depth);
+    }   
+}
+
+void main() {
+    drawScene(gl_FragCoord.xy, gl_FragColor.rgb);
+    gl_FragColor.a = 1.0;
+}
